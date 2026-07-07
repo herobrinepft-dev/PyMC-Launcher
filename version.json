@@ -1,0 +1,13 @@
+{
+    "version": "1.0.0",
+    "download_url": "https://github.com/herobrinepft-dev/PyMC-Launcher/archive/refs/heads/main.zip",
+    "changelog": [
+        "✅ Version initiale",
+        "🎮 Gestion des instances",
+        "📦 Navigateur de mods Modrinth",
+        "🖥️ Hébergement de serveurs locaux",
+        "📡 Présence Discord intégrée"
+    ],
+    "min_version": "1.0.0",
+    "force_update": false
+}
