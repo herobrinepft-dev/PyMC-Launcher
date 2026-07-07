@@ -14,7 +14,8 @@ import theme
 from core import (
     APP_DIR, INSTANCES_DIR, SERVERS_DIR, MojangAPI, FabricAPI, ModrinthAPI, LaunchManager,
     ServerManager, get_local_ip, load_config, save_config, offline_uuid,
-    DiscordPresence,  # <--- AJOUT DISCORD 1
+    DiscordPresence,
+    install_forge,  # <--- AJOUT POUR FORGE
 )
 from theme import (
     BG_DARK, BG_DARKEST, BG_CARD, BG_CARD_HOVER, BG_INPUT, ACCENT, ACCENT_HOVER,
@@ -55,7 +56,7 @@ class LauncherApp(tk.Tk):
         self.refresh_account_list()
         self.refresh_server_list()
 
-        # <--- AJOUT DISCORD 2 : Présence Discord au démarrage
+        # Présence Discord au démarrage
         try:
             DiscordPresence.set_idle()
         except Exception:
@@ -230,7 +231,9 @@ class LauncherApp(tk.Tk):
         tk.Label(title_row, text=name, bg=card["bg"], fg=TEXT_PRIMARY,
                  font=font(12, "bold")).pack(side="left")
         loader = inst.get("loader", "vanilla")
-        Badge(title_row, loader, bg=ACCENT if loader == "fabric" else TEXT_MUTED).pack(side="left", padx=8)
+        badge_text = loader.upper() if loader != "vanilla" else "VANILLA"
+        badge_color = ACCENT if loader == "fabric" else (WARNING if loader == "forge" else TEXT_MUTED)
+        Badge(title_row, badge_text, bg=badge_color).pack(side="left", padx=8)
 
         tk.Label(inner, text=f"Minecraft {inst['version']}", bg=card["bg"], fg=TEXT_SECONDARY,
                  font=font(9)).pack(anchor="w", pady=(4, 0))
@@ -259,7 +262,7 @@ class LauncherApp(tk.Tk):
     def create_instance_dialog(self):
         dialog = tk.Toplevel(self)
         dialog.title("Nouvelle instance")
-        dialog.geometry("440x360")
+        dialog.geometry("440x380")
         dialog.configure(bg=BG_DARK)
         dialog.grab_set()
 
@@ -298,7 +301,7 @@ class LauncherApp(tk.Tk):
         tk.Label(dialog, text="Mod loader", bg=BG_DARK, fg=TEXT_SECONDARY, font=font(9)).pack(anchor="w", **pad, pady=(14, 2))
         loader_var = tk.StringVar(value="vanilla")
         ttk.Combobox(dialog, textvariable=loader_var, state="readonly",
-                     values=["vanilla", "fabric"]).pack(fill="x", **pad)
+                     values=["vanilla", "fabric", "forge"]).pack(fill="x", **pad)  # <--- AJOUT FORGE
 
         def confirm():
             name = name_var.get().strip()
@@ -315,6 +318,7 @@ class LauncherApp(tk.Tk):
                 "loader": loader_var.get(),
                 "loader_version": None,
                 "fabric_info": None,
+                "forge_info": None,  # <--- AJOUT POUR FORGE
                 "dir": str(inst_dir),
             }
             save_config(self.cfg)
@@ -361,10 +365,9 @@ class LauncherApp(tk.Tk):
                     inst["java_path"] = str(java_exe)
                     save_config(self.cfg)
                 except Exception as e:
-                    # Si le téléchargement du runtime officiel échoue (ex: réseau
-                    # restreint), on retombe sur le Java configuré dans Paramètres.
                     self.after(0, lambda: self.set_status(f"Runtime Java officiel indisponible ({e}), Java système utilisé."))
 
+            # --- Installation de Fabric ---
             if inst.get("loader") == "fabric":
                 loaders = FabricAPI.loader_versions(inst["version"])
                 if not loaders:
@@ -377,6 +380,21 @@ class LauncherApp(tk.Tk):
                     "libraries": [str(p) for p in fabric_info["libraries"]],
                 }
                 save_config(self.cfg)
+
+            # <--- AJOUT : Installation de Forge
+            if inst.get("loader") == "forge":
+                self.after(0, lambda: self.set_status("Installation de Forge..."))
+                try:
+                    forge_version = install_forge(inst["version"], Path(inst["dir"]), progress_cb=cb)
+                    if forge_version:
+                        inst["loader_version"] = forge_version
+                        inst["forge_info"] = {"installed": True, "version": forge_version}
+                        save_config(self.cfg)
+                        self.after(0, lambda: self.set_status(f"Forge {forge_version} installé !"))
+                    else:
+                        self.after(0, lambda: self.set_status("Échec de l'installation de Forge"))
+                except Exception as e:
+                    self.after(0, lambda: self.set_status(f"Erreur Forge : {e}"))
 
             self.after(0, lambda: self.progress.config(value=100))
             self.after(0, lambda: self.set_status(f"Instance '{name}' installée avec succès."))
@@ -422,7 +440,7 @@ class LauncherApp(tk.Tk):
             min_ram = self.cfg.get("min_ram", 1)
             max_ram = self.cfg.get("max_ram", 4)
 
-            # <--- AJOUT DISCORD 3 : Présence "en train de jouer"
+            # Présence Discord : "en train de jouer"
             self.after(0, lambda: DiscordPresence.set_playing())
 
             LaunchManager.launch(inst, account, java_path, min_ram, max_ram, log_cb=log)
@@ -875,7 +893,7 @@ class LauncherApp(tk.Tk):
             proc = ServerManager.start(Path(srv["dir"]), java_path, min_ram, max_ram, log_cb=log)
             self.server_procs[name] = proc
 
-            # <--- AJOUT DISCORD 4 : Présence "héberge un serveur"
+            # Présence Discord : "héberge un serveur"
             self.after(0, lambda: DiscordPresence.set_hosting())
             self.after(0, lambda: self._update_server_details(name, srv))
             self.after(0, self.refresh_server_list)
@@ -897,7 +915,7 @@ class LauncherApp(tk.Tk):
             return
         proc = self.server_procs[name]
 
-        # <--- AJOUT DISCORD 5 : Retour à l'état idle pendant l'arrêt
+        # Présence Discord : retour à l'état idle pendant l'arrêt
         self.after(0, lambda: DiscordPresence.set_idle())
 
         self.set_status(f"Arrêt du serveur '{name}'...")
