@@ -9,7 +9,7 @@
         "🧹 Nettoyage du code (suppression de Feather Remake)",
         "🐛 Corrections de bugs mineurs"
     ],
-    "force_update": false,
+    "force_update": true,
     "min_version": "1.0.0",
     "dependencies": {
         "portablemc": ">=3.0.0"
