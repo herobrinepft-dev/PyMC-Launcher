@@ -6,6 +6,7 @@ Contient :
 - MojangAPI : manifest des versions officielles, installation (client jar,
   libraries, natives, assets) via l'API publique de Mojang (piston-meta)
 - FabricAPI : installation du mod loader Fabric via l'API publique Fabric
+- ForgeAPI : installation du mod loader Forge via portablemc
 - ModrinthAPI : recherche et téléchargement de mods via l'API publique Modrinth
 - LaunchManager : construction de la commande Java et lancement du jeu
 
@@ -473,6 +474,74 @@ class FabricAPI:
 
 
 # ---------------------------------------------------------------------------
+# API Forge (mod loader) via portablemc
+# ---------------------------------------------------------------------------
+
+def install_forge(mc_version, instance_dir, progress_cb=None):
+    """
+    Installe Forge pour la version Minecraft donnée dans l'instance.
+    Utilise portablemc pour gérer toute la complexité.
+    """
+    try:
+        from portablemc.forge import find_forge_version, install_forge_version
+        
+        if progress_cb:
+            progress_cb("Recherche de la version Forge compatible...", 0, 1)
+        
+        # Trouver la meilleure version de Forge pour cette version de Minecraft
+        forge_versions = find_forge_version(mc_version)
+        if not forge_versions:
+            if progress_cb:
+                progress_cb("Aucune version de Forge disponible pour cette version de Minecraft.", 0, 1)
+            return False
+        
+        # Prendre la version recommandée (la plus récente)
+        forge_version = forge_versions[-1]  # la dernière est la plus récente
+        if progress_cb:
+            progress_cb(f"Forge {forge_version} trouvé.", 0, 1)
+        
+        # Dossier Forge dans l'instance
+        forge_dir = instance_dir / "forge"
+        forge_dir.mkdir(parents=True, exist_ok=True)
+        
+        if progress_cb:
+            progress_cb("Téléchargement et installation de Forge...", 0, 1)
+        
+        # Installer Forge (télécharge et installe tout)
+        install_forge_version(
+            mc_version=mc_version,
+            forge_version=forge_version,
+            path=str(forge_dir),
+            progress_callback=progress_cb
+        )
+        
+        if progress_cb:
+            progress_cb(f"Forge installé avec succès !", 1, 1)
+        
+        return forge_version
+        
+    except ImportError:
+        if progress_cb:
+            progress_cb("portablemc n'est pas installé. Exécute : pip install portablemc", 0, 1)
+        return False
+    except Exception as e:
+        if progress_cb:
+            progress_cb(f"Erreur Forge : {e}", 0, 1)
+        return False
+
+
+def get_forge_versions(mc_version):
+    """Récupère la liste des versions Forge disponibles pour une version Minecraft donnée."""
+    try:
+        from portablemc.forge import find_forge_version
+        return find_forge_version(mc_version)
+    except ImportError:
+        return []
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
 # API Modrinth (mods)
 # ---------------------------------------------------------------------------
 
@@ -544,12 +613,30 @@ class LaunchManager:
         vjson = MojangAPI.get_version_json(version_id)
         main_class = vjson.get("mainClass", "net.minecraft.client.main.Main")
         extra_libs = []
+        inst_dir = Path(instance["dir"])
 
+        # --- Fabric ---
         if instance.get("loader") == "fabric" and instance.get("fabric_info"):
             main_class = instance["fabric_info"]["mainClass"]
             extra_libs = instance["fabric_info"]["libraries"]
 
-        inst_dir = Path(instance["dir"])
+        # --- Forge ---
+        if instance.get("loader") == "forge":
+            forge_dir = inst_dir / "forge"
+            # Chercher le jar Forge client
+            forge_jars = list(forge_dir.glob("forge-*-client.jar"))
+            if forge_jars:
+                # Ajouter le jar Forge au classpath
+                extra_libs.append(str(forge_jars[0]))
+                # mainClass reste le même que vanilla
+            else:
+                # Fallback : chercher dans versions
+                forge_versions_dir = APP_DIR / "versions" / f"{version_id}-forge"
+                if forge_versions_dir.exists():
+                    forge_jars = list(forge_versions_dir.glob("*.jar"))
+                    if forge_jars:
+                        extra_libs.append(str(forge_jars[0]))
+
         inst_dir.mkdir(parents=True, exist_ok=True)
         (inst_dir / "mods").mkdir(exist_ok=True)
 
@@ -630,102 +717,6 @@ class LaunchManager:
             # fermeture normale du jeu.
             pass
         return proc
-
-
-# ---------------------------------------------------------------------------
-# Discord Presence (simple et automatique)
-# ---------------------------------------------------------------------------
-
-try:
-    from pypresence import Presence
-    import time
-    DISCORD_AVAILABLE = True
-except ImportError:
-    DISCORD_AVAILABLE = False
-    print("⚠️ pip install pypresence pour la présence Discord")
-
-class DiscordPresence:
-    CLIENT_ID = "1524081185893126335"  # TON ID ICI !
-    
-    _instance = None
-    _running = False
-    _start_time = None
-    _status = "idle"  # idle, playing, hosting
-    
-    @classmethod
-    def _init(cls):
-        if cls._instance is None and DISCORD_AVAILABLE:
-            try:
-                cls._instance = Presence(cls.CLIENT_ID)
-                cls._instance.connect()
-                cls._running = True
-                cls._start_time = int(time.time())
-                cls._status = "idle"
-                cls._update_presence()
-            except Exception as e:
-                print(f"⚠️ Discord : {e}")
-                cls._running = False
-    
-    @classmethod
-    def _update_presence(cls):
-        if not DISCORD_AVAILABLE or not cls._running:
-            return
-        try:
-            if cls._status == "idle":
-                cls._instance.update(
-                    state="Dans le launcher",
-                    details="PyMC Launcher",
-                    large_image="pymc_icon",
-                    large_text="PyMC Launcher",
-                    start=cls._start_time
-                )
-            elif cls._status == "playing":
-                cls._instance.update(
-                    state="Joue à Minecraft",
-                    details="via PyMC Launcher",
-                    large_image="pymc_icon",
-                    large_text="PyMC Launcher",
-                    start=cls._start_time
-                )
-            elif cls._status == "hosting":
-                cls._instance.update(
-                    state="Héberge un serveur",
-                    details="via PyMC Launcher",
-                    large_image="pymc_icon",
-                    large_text="PyMC Launcher",
-                    start=cls._start_time
-                )
-        except Exception as e:
-            print(f"⚠️ Discord update : {e}")
-            cls._running = False
-    
-    @classmethod
-    def set_idle(cls):
-        cls._init()
-        cls._status = "idle"
-        cls._update_presence()
-    
-    @classmethod
-    def set_playing(cls):
-        cls._init()
-        cls._status = "playing"
-        cls._update_presence()
-    
-    @classmethod
-    def set_hosting(cls):
-        cls._init()
-        cls._status = "hosting"
-        cls._update_presence()
-    
-    @classmethod
-    def clear(cls):
-        if cls._instance:
-            try:
-                cls._instance.clear()
-            except Exception:
-                pass
-            cls._instance = None
-            cls._running = False
 
 
 # ---------------------------------------------------------------------------
@@ -830,3 +821,99 @@ class ServerManager:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 proc.terminate()
+
+
+# ---------------------------------------------------------------------------
+# Discord Rich Presence (simple et automatique)
+# ---------------------------------------------------------------------------
+
+try:
+    from pypresence import Presence
+    import time
+    DISCORD_AVAILABLE = True
+except ImportError:
+    DISCORD_AVAILABLE = False
+    print("⚠️ pip install pypresence pour la présence Discord")
+
+class DiscordPresence:
+    CLIENT_ID = "1524081185893126335"  # TON ID ICI !
+    
+    _instance = None
+    _running = False
+    _start_time = None
+    _status = "idle"  # idle, playing, hosting
+    
+    @classmethod
+    def _init(cls):
+        if cls._instance is None and DISCORD_AVAILABLE:
+            try:
+                cls._instance = Presence(cls.CLIENT_ID)
+                cls._instance.connect()
+                cls._running = True
+                cls._start_time = int(time.time())
+                cls._status = "idle"
+                cls._update_presence()
+            except Exception as e:
+                print(f"⚠️ Discord : {e}")
+                cls._running = False
+    
+    @classmethod
+    def _update_presence(cls):
+        if not DISCORD_AVAILABLE or not cls._running:
+            return
+        try:
+            if cls._status == "idle":
+                cls._instance.update(
+                    state="Dans le launcher",
+                    details="PyMC Launcher",
+                    large_image="pymc_icon",
+                    large_text="PyMC Launcher",
+                    start=cls._start_time
+                )
+            elif cls._status == "playing":
+                cls._instance.update(
+                    state="Joue à Minecraft",
+                    details="via PyMC Launcher",
+                    large_image="pymc_icon",
+                    large_text="PyMC Launcher",
+                    start=cls._start_time
+                )
+            elif cls._status == "hosting":
+                cls._instance.update(
+                    state="Héberge un serveur",
+                    details="via PyMC Launcher",
+                    large_image="pymc_icon",
+                    large_text="PyMC Launcher",
+                    start=cls._start_time
+                )
+        except Exception as e:
+            print(f"⚠️ Discord update : {e}")
+            cls._running = False
+    
+    @classmethod
+    def set_idle(cls):
+        cls._init()
+        cls._status = "idle"
+        cls._update_presence()
+    
+    @classmethod
+    def set_playing(cls):
+        cls._init()
+        cls._status = "playing"
+        cls._update_presence()
+    
+    @classmethod
+    def set_hosting(cls):
+        cls._init()
+        cls._status = "hosting"
+        cls._update_presence()
+    
+    @classmethod
+    def clear(cls):
+        if cls._instance:
+            try:
+                cls._instance.clear()
+            except Exception:
+                pass
+            cls._instance = None
+            cls._running = False
