@@ -1,13 +1,17 @@
 {
-    "version": "1.0.2",
+    "version": "1.1.0",
     "download_url": "https://github.com/herobrinepft-dev/PyMC-Launcher/archive/refs/heads/main.zip",
     "changelog": [
-        "✅ Version initiale",
-        "🎮 Gestion des instances",
-        "📦 Navigateur de mods Modrinth",
-        "🖥️ Hébergement de serveurs locaux",
-        "📡 Présence Discord intégrée"
+        "🔥 Ajout du support FORGE",
+        "🔄 Installation automatique de Forge via portablemc",
+        "🎮 Support de 3 loaders : Vanilla, Fabric, Forge",
+        "🏷️ Badge FORGE dans l'interface",
+        "🧹 Nettoyage du code (suppression de Feather Remake)",
+        "🐛 Corrections de bugs mineurs"
     ],
+    "force_update": false,
     "min_version": "1.0.0",
-    "force_update": false
+    "dependencies": {
+        "portablemc": ">=3.0.0"
+    }
 }
