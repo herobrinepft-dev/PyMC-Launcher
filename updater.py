@@ -15,7 +15,7 @@ from pathlib import Path
 from tkinter import messagebox
 
 # Version actuelle du launcher (à incrémenter manuellement à chaque release)
-CURRENT_VERSION = "1.0.0"
+CURRENT_VERSION = "1.0.2"
 
 # URL du fichier de version en ligne (sur GitHub)
 VERSION_URL = "https://raw.githubusercontent.com/herobrinepft-dev/PyMC-Launcher/main/version.json"
