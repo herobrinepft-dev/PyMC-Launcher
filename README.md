@@ -88,5 +88,21 @@ mc_launcher/
 └── requirements.txt
 ```
 
+## ⚠️ Windows Defender / Antivirus
+
+PyMC-Launcher peut parfois être détecté comme un faux positif par certains
+antivirus. C'est un problème classique avec les exécutables créés avec PyInstaller.
+
+**Rassure-toi :** Le code source est entièrement ouvert et vérifiable sur GitHub.
+
+Si tu as un message d'erreur, ajoute le dossier du launcher dans les exclusions
+de Windows Defender :
+
+1. Paramètres → Sécurité Windows → Protection contre les virus et menaces
+2. Gérer les paramètres → Exclusions
+3. Ajouter une exclusion → Dossier du launcher
+
+**Résultat VirusTotal :** 5/68 (seuls 5 antivirus sur 68 détectent, aucun des majeurs)
+
 Les données persistantes (config, versions, librairies, assets, instances)
 sont stockées dans `~/.pymc_launcher/`.
