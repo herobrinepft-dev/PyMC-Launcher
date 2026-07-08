@@ -549,8 +549,8 @@ class ModrinthAPI:
     BASE = "https://api.modrinth.com/v2"
 
     @classmethod
-    def search(cls, query, mc_version=None, loader=None, limit=30):
-        facets = [["project_type:mod"]]
+    def search(cls, query, mc_version=None, loader=None, limit=30, project_type="mod"):
+        facets = [[f"project_type:{project_type}"]]
         if mc_version:
             facets.append([f"versions:{mc_version}"])
         if loader and loader != "vanilla":
@@ -917,3 +917,26 @@ class DiscordPresence:
                 pass
             cls._instance = None
             cls._running = False
+
+
+# ---------------------------------------------------------------------------
+# Notifications système (Windows / macOS / Linux)
+# ---------------------------------------------------------------------------
+
+def notify(title: str, message: str, timeout: int = 6):
+    """Affiche une notification système (toast Windows, notification macOS/Linux).
+    Échoue silencieusement si `plyer` n'est pas installé ou si le système
+    ne supporte pas les notifications (ex: certains environnements headless) —
+    ce n'est jamais bloquant pour le launcher."""
+    try:
+        from plyer import notification
+        icon_path = Path(__file__).resolve().parent / "pymc_icon.ico"
+        notification.notify(
+            title=title,
+            message=message,
+            app_name="PyMC Launcher",
+            app_icon=str(icon_path) if os_name() == "windows" and icon_path.exists() else "",
+            timeout=timeout,
+        )
+    except Exception:
+        pass
