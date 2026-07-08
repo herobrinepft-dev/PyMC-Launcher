@@ -9,13 +9,19 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox, simpledialog
 
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 import core
 import theme
 from core import (
     APP_DIR, INSTANCES_DIR, SERVERS_DIR, MojangAPI, FabricAPI, ModrinthAPI, LaunchManager,
     ServerManager, get_local_ip, load_config, save_config, offline_uuid,
     DiscordPresence,
-    install_forge,  # <--- AJOUT POUR FORGE
+    install_forge,
 )
 from theme import (
     BG_DARK, BG_DARKEST, BG_CARD, BG_CARD_HOVER, BG_INPUT, ACCENT, ACCENT_HOVER,
@@ -23,9 +29,12 @@ from theme import (
     RoundedButton, Badge, ScrollableFrame, Avatar, font,
 )
 
+ASSETS_ROOT = Path(__file__).resolve().parent
+
 NAV_ITEMS = [
     ("play", "▶  Jouer"),
     ("mods", "🧩  Mods"),
+    ("shaders", "✨  Shaders"),
     ("servers", "🖧  Serveurs"),
     ("accounts", "👤  Comptes"),
     ("settings", "⚙  Paramètres"),
@@ -37,6 +46,9 @@ class LauncherApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("PyMC Launcher")
+        self._icon_images = []  # garde une référence (sinon Tkinter les jette et l'icône disparaît)
+        self._set_window_icon()
+
         self.geometry("1150x720")
         self.minsize(1000, 620)
         theme.apply_global_theme(self)
@@ -62,6 +74,47 @@ class LauncherApp(tk.Tk):
         except Exception:
             pass
 
+    def _set_window_icon(self):
+        """Icône de la fenêtre/barre des tâches, robuste au dossier d'exécution
+        (utilise le chemin absolu du script plutôt qu'un chemin relatif qui ne
+        marche que si on lance depuis le bon dossier)."""
+        ico_path = ASSETS_ROOT / "pymc_icon.ico"
+        png_path = ASSETS_ROOT / "pymc_icon.png"
+
+        if ico_path.exists():
+            try:
+                self.iconbitmap(str(ico_path))
+            except Exception:
+                pass
+
+        if png_path.exists():
+            try:
+                if PIL_AVAILABLE:
+                    img = Image.open(png_path)
+                    img.thumbnail((64, 64), Image.LANCZOS)
+                    photo = ImageTk.PhotoImage(img)
+                else:
+                    photo = tk.PhotoImage(file=str(png_path))
+                self._icon_images.append(photo)
+                self.iconphoto(True, photo)
+            except Exception:
+                pass
+
+    def _load_sidebar_logo(self, size=34):
+        """Petite version du logo pour la sidebar. Retourne None si indisponible
+        (le texte '⛏ PyMC' sert alors de repli)."""
+        png_path = ASSETS_ROOT / "pymc_icon.png"
+        if not (PIL_AVAILABLE and png_path.exists()):
+            return None
+        try:
+            img = Image.open(png_path).convert("RGBA")
+            img.thumbnail((size, size), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+            self._icon_images.append(photo)
+            return photo
+        except Exception:
+            return None
+
     # ================================================================ Layout
     def _build_layout(self):
         root = tk.Frame(self, bg=BG_DARK)
@@ -72,9 +125,14 @@ class LauncherApp(tk.Tk):
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
 
-        logo = tk.Label(sidebar, text="⛏ PyMC", bg=BG_DARKEST, fg=ACCENT,
-                         font=font(20, "bold"))
-        logo.pack(anchor="w", padx=20, pady=(24, 4))
+        logo_row = tk.Frame(sidebar, bg=BG_DARKEST)
+        logo_row.pack(anchor="w", padx=20, pady=(24, 4))
+        logo_photo = self._load_sidebar_logo()
+        if logo_photo:
+            tk.Label(logo_row, image=logo_photo, bg=BG_DARKEST).pack(side="left", padx=(0, 6))
+            tk.Label(logo_row, text="PyMC", bg=BG_DARKEST, fg=ACCENT, font=font(20, "bold")).pack(side="left")
+        else:
+            tk.Label(logo_row, text="⛏ PyMC", bg=BG_DARKEST, fg=ACCENT, font=font(20, "bold")).pack(side="left")
         tk.Label(sidebar, text="LAUNCHER", bg=BG_DARKEST, fg=TEXT_MUTED,
                  font=font(9, "bold")).pack(anchor="w", padx=22, pady=(0, 25))
 
@@ -110,6 +168,7 @@ class LauncherApp(tk.Tk):
 
         self._build_play_page()
         self._build_mods_page()
+        self._build_shaders_page()
         self._build_servers_page()
         self._build_accounts_page()
         self._build_settings_page()
@@ -141,6 +200,8 @@ class LauncherApp(tk.Tk):
                        font=font(11, "bold" if active else "normal"))
         if key == "mods":
             self._refresh_mods_instance_combo()
+        if key == "shaders":
+            self._refresh_shaders_instance_combo()
         if key == "servers":
             self._refresh_server_console()
 
@@ -301,7 +362,7 @@ class LauncherApp(tk.Tk):
         tk.Label(dialog, text="Mod loader", bg=BG_DARK, fg=TEXT_SECONDARY, font=font(9)).pack(anchor="w", **pad, pady=(14, 2))
         loader_var = tk.StringVar(value="vanilla")
         ttk.Combobox(dialog, textvariable=loader_var, state="readonly",
-                     values=["vanilla", "fabric", "forge"]).pack(fill="x", **pad)  # <--- AJOUT FORGE
+                     values=["vanilla", "fabric", "forge"]).pack(fill="x", **pad)
 
         def confirm():
             name = name_var.get().strip()
@@ -318,7 +379,7 @@ class LauncherApp(tk.Tk):
                 "loader": loader_var.get(),
                 "loader_version": None,
                 "fabric_info": None,
-                "forge_info": None,  # <--- AJOUT POUR FORGE
+                "forge_info": None,
                 "dir": str(inst_dir),
             }
             save_config(self.cfg)
@@ -381,7 +442,7 @@ class LauncherApp(tk.Tk):
                 }
                 save_config(self.cfg)
 
-            # <--- AJOUT : Installation de Forge
+            # --- Installation de Forge ---
             if inst.get("loader") == "forge":
                 self.after(0, lambda: self.set_status("Installation de Forge..."))
                 try:
@@ -399,6 +460,7 @@ class LauncherApp(tk.Tk):
             self.after(0, lambda: self.progress.config(value=100))
             self.after(0, lambda: self.set_status(f"Instance '{name}' installée avec succès."))
             self.after(0, lambda: messagebox.showinfo("Succès", f"Instance '{name}' installée !"))
+            core.notify("Installation terminée", f"L'instance « {name} » est prête à être lancée.")
         except Exception as e:
             self.after(0, lambda: messagebox.showerror("Erreur d'installation", str(e)))
             self.after(0, lambda: self.set_status("Échec de l'installation."))
@@ -442,6 +504,7 @@ class LauncherApp(tk.Tk):
 
             # Présence Discord : "en train de jouer"
             self.after(0, lambda: DiscordPresence.set_playing())
+            core.notify("Minecraft lancé", f"L'instance « {inst.get('version', '')} » démarre...")
 
             LaunchManager.launch(inst, account, java_path, min_ram, max_ram, log_cb=log)
 
@@ -560,7 +623,7 @@ class LauncherApp(tk.Tk):
 
     def _on_mod_select(self, project):
         self.selected_mod_project = project
-        self._populate_mod_results()  # pour re-highlighter la carte sélectionnée
+        self._populate_mod_results()
         self.mod_desc_label.config(text=project.get("description", ""))
 
         for w in self.mod_versions_scroll.inner.winfo_children():
@@ -626,6 +689,232 @@ class LauncherApp(tk.Tk):
             ModrinthAPI.download_mod_file(file_info, mods_dir, progress_cb=cb)
             self.after(0, lambda: self.set_status(f"Mod installé : {file_info['filename']}"))
             self.after(0, lambda: self.progress.config(value=0))
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Erreur", str(e)))
+
+    # ========================================================== Shaders page
+    def _build_shaders_page(self):
+        page = self.pages["shaders"]
+        header = tk.Frame(page, bg=BG_DARK)
+        header.pack(fill="x", padx=30, pady=(26, 10))
+        tk.Label(header, text="Shaders — Modrinth", bg=BG_DARK, fg=TEXT_PRIMARY,
+                 font=font(20, "bold")).pack(side="left")
+
+        controls = tk.Frame(page, bg=BG_DARK)
+        controls.pack(fill="x", padx=30, pady=(0, 4))
+
+        tk.Label(controls, text="Instance :", bg=BG_DARK, fg=TEXT_SECONDARY, font=font(9)).pack(side="left")
+        self.shaders_instance_var = tk.StringVar()
+        self.shaders_instance_combo = ttk.Combobox(controls, textvariable=self.shaders_instance_var,
+                                                     state="readonly", width=22)
+        self.shaders_instance_combo.pack(side="left", padx=(6, 20))
+
+        tk.Label(controls, text="Recherche :", bg=BG_DARK, fg=TEXT_SECONDARY, font=font(9)).pack(side="left")
+        self.shader_query_var = tk.StringVar()
+        entry = tk.Entry(controls, textvariable=self.shader_query_var, bg=BG_INPUT, fg=TEXT_PRIMARY,
+                          insertbackground=TEXT_PRIMARY, relief="flat", width=30, font=font(10))
+        entry.pack(side="left", padx=6, ipady=5)
+        entry.bind("<Return>", lambda e: self.search_shaders())
+        RoundedButton(controls, "Rechercher", command=self.search_shaders, bg=ACCENT, hover_bg=ACCENT_HOVER,
+                      width=130, height=32, font_size=9).pack(side="left", padx=8)
+
+        note_row = tk.Frame(page, bg=BG_DARK)
+        note_row.pack(fill="x", padx=30, pady=(0, 12))
+        tk.Label(note_row, text="⚠ Les shaders ont besoin d'un mod loader de shaders pour fonctionner : "
+                                 "Iris pour Fabric, OptiFine pour vanilla.",
+                 bg=BG_DARK, fg=WARNING, font=font(9), justify="left", wraplength=650).pack(side="left")
+        RoundedButton(note_row, "Installer Iris", command=self.install_iris, bg=BG_CARD, hover_bg=BG_CARD_HOVER,
+                      width=140, height=30, font_size=9).pack(side="right")
+
+        body = tk.Frame(page, bg=BG_DARK)
+        body.pack(fill="both", expand=True, padx=30, pady=10)
+
+        list_col = tk.Frame(body, bg=BG_DARK)
+        list_col.pack(side="left", fill="both", expand=True)
+        self.shaders_scroll = ScrollableFrame(list_col, bg=BG_DARK)
+        self.shaders_scroll.pack(fill="both", expand=True)
+
+        detail_col = tk.Frame(body, bg=BG_CARD, width=320)
+        detail_col.pack(side="left", fill="y", padx=(20, 0))
+        detail_col.pack_propagate(False)
+        inner = tk.Frame(detail_col, bg=BG_CARD, padx=20, pady=20)
+        inner.pack(fill="both", expand=True)
+
+        tk.Label(inner, text="DESCRIPTION", bg=BG_CARD, fg=TEXT_MUTED, font=font(9, "bold")).pack(anchor="w")
+        self.shader_desc_label = tk.Label(inner, text="Sélectionne un shader à gauche.", bg=BG_CARD, fg=TEXT_SECONDARY,
+                                           font=font(9), wraplength=270, justify="left")
+        self.shader_desc_label.pack(anchor="w", pady=(4, 14))
+
+        tk.Label(inner, text="VERSIONS COMPATIBLES", bg=BG_CARD, fg=TEXT_MUTED, font=font(9, "bold")).pack(anchor="w")
+        self.shader_versions_scroll = ScrollableFrame(inner, bg=BG_CARD)
+        self.shader_versions_scroll.pack(fill="both", expand=True, pady=(6, 0))
+
+        self.shader_results = []
+        self.shader_versions = []
+        self.selected_shader_project = None
+
+    def _refresh_shaders_instance_combo(self):
+        names = list(self.cfg["instances"].keys())
+        self.shaders_instance_combo["values"] = names
+        if names and not self.shaders_instance_var.get():
+            self.shaders_instance_var.set(names[0])
+
+    def search_shaders(self):
+        query = self.shader_query_var.get().strip()
+        if not query:
+            return
+        name = self.shaders_instance_var.get()
+        inst = self.cfg["instances"].get(name)
+        mc_version = inst["version"] if inst else None
+        self.set_status("Recherche de shaders...")
+        threading.Thread(target=self._search_shaders_thread, args=(query, mc_version), daemon=True).start()
+
+    def _search_shaders_thread(self, query, mc_version):
+        try:
+            # Pas de facet "loader" ici : les tags de shaders (iris/optifine/canvas)
+            # ne correspondent pas au loader de l'instance (fabric/forge/vanilla).
+            self.shader_results = ModrinthAPI.search(query, mc_version=mc_version, loader=None,
+                                                      project_type="shader")
+            self.after(0, self._populate_shader_results)
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Erreur réseau", str(e)))
+
+    def _populate_shader_results(self):
+        for w in self.shaders_scroll.inner.winfo_children():
+            w.destroy()
+        for r in self.shader_results:
+            self._make_shader_card(r)
+        if not self.shader_results:
+            tk.Label(self.shaders_scroll.inner, text="Aucun résultat.", bg=BG_DARK, fg=TEXT_MUTED,
+                     font=font(10)).pack(pady=30)
+        self.set_status(f"{len(self.shader_results)} shader(s) trouvé(s).")
+
+    def _make_shader_card(self, r):
+        selected = self.selected_shader_project is r
+        card = tk.Frame(self.shaders_scroll.inner, bg=BG_CARD_HOVER if selected else BG_CARD, cursor="hand2")
+        card.pack(fill="x", pady=6)
+        inner = tk.Frame(card, bg=card["bg"], padx=16, pady=10)
+        inner.pack(fill="both", expand=True)
+        tk.Label(inner, text=r.get("title", "Sans nom"), bg=card["bg"], fg=TEXT_PRIMARY,
+                 font=font(12, "bold")).pack(anchor="w")
+        tk.Label(inner, text=f"par {r.get('author', '?')}  ·  {r.get('downloads', 0):,} téléchargements",
+                 bg=card["bg"], fg=TEXT_SECONDARY, font=font(9)).pack(anchor="w", pady=(2, 0))
+
+        def select(_e=None):
+            self._on_shader_select(r)
+
+        for w in (card, inner) + tuple(inner.winfo_children()):
+            w.bind("<Button-1>", select)
+
+    def _on_shader_select(self, project):
+        self.selected_shader_project = project
+        self._populate_shader_results()
+        self.shader_desc_label.config(text=project.get("description", ""))
+
+        for w in self.shader_versions_scroll.inner.winfo_children():
+            w.destroy()
+        tk.Label(self.shader_versions_scroll.inner, text="Chargement...", bg=BG_CARD, fg=TEXT_MUTED,
+                 font=font(9)).pack(pady=10)
+
+        name = self.shaders_instance_var.get()
+        inst = self.cfg["instances"].get(name)
+        mc_version = inst["version"] if inst else None
+        project_id = project.get("project_id") or project.get("slug")
+        threading.Thread(target=self._load_shader_versions_thread, args=(project_id, mc_version), daemon=True).start()
+
+    def _load_shader_versions_thread(self, project_id, mc_version):
+        try:
+            self.shader_versions = ModrinthAPI.project_versions(project_id, mc_version=mc_version, loader=None)
+            self.after(0, self._populate_shader_versions)
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Erreur réseau", str(e)))
+
+    def _populate_shader_versions(self):
+        for w in self.shader_versions_scroll.inner.winfo_children():
+            w.destroy()
+        if not self.shader_versions:
+            tk.Label(self.shader_versions_scroll.inner, text="Aucune version compatible.", bg=BG_CARD,
+                     fg=TEXT_MUTED, font=font(9), wraplength=260, justify="left").pack(pady=10)
+            return
+        for v in self.shader_versions:
+            row = tk.Frame(self.shader_versions_scroll.inner, bg=BG_INPUT, cursor="hand2")
+            row.pack(fill="x", pady=3)
+            name = v.get("name") or v.get("version_number")
+            gv = ", ".join(v.get("game_versions", []))
+            tk.Label(row, text=name, bg=BG_INPUT, fg=TEXT_PRIMARY, font=font(9, "bold"),
+                     anchor="w", padx=10, pady=6).pack(side="left", fill="x", expand=True)
+            dl_btn = RoundedButton(row, "↓", command=lambda ver=v: self._download_shader_version(ver),
+                                    bg=ACCENT, hover_bg=ACCENT_HOVER, width=34, height=28,
+                                    radius=8, font_size=10)
+            dl_btn.pack(side="right", padx=6, pady=3)
+            tk.Label(row, text=gv, bg=BG_INPUT, fg=TEXT_MUTED, font=font(8)).pack(side="right", padx=4)
+
+    def _download_shader_version(self, version):
+        name = self.shaders_instance_var.get()
+        inst = self.cfg["instances"].get(name)
+        if not inst:
+            messagebox.showinfo("Info", "Choisis d'abord une instance cible.")
+            return
+        files = version.get("files", [])
+        if not files:
+            messagebox.showerror("Erreur", "Aucun fichier pour cette version.")
+            return
+        file_info = next((f for f in files if f.get("primary")), files[0])
+        shaderpacks_dir = Path(inst["dir"]) / "shaderpacks"
+        self.set_status(f"Téléchargement de {file_info['filename']}...")
+        threading.Thread(target=self._download_shader_thread, args=(file_info, shaderpacks_dir), daemon=True).start()
+
+    def _download_shader_thread(self, file_info, shaderpacks_dir):
+        try:
+            def cb(label, done, total):
+                pct = done / total * 100 if total else 0
+                self.after(0, lambda: self.progress.config(value=pct))
+
+            ModrinthAPI.download_mod_file(file_info, shaderpacks_dir, progress_cb=cb)
+            self.after(0, lambda: self.set_status(f"Shader installé : {file_info['filename']}"))
+            self.after(0, lambda: self.progress.config(value=0))
+            core.notify("Shader installé", f"{file_info['filename']} est prêt dans shaderpacks/.")
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Erreur", str(e)))
+
+    def install_iris(self):
+        """Installe automatiquement le mod Iris (loader de shaders pour Fabric)
+        dans le dossier mods/ de l'instance sélectionnée."""
+        name = self.shaders_instance_var.get()
+        inst = self.cfg["instances"].get(name)
+        if not inst:
+            messagebox.showinfo("Info", "Choisis d'abord une instance cible.")
+            return
+        if inst.get("loader") != "fabric":
+            messagebox.showinfo(
+                "Iris nécessite Fabric",
+                "Iris ne fonctionne qu'avec le loader Fabric. Pour jouer avec des shaders sur "
+                "une instance vanilla/Forge, installe OptiFine manuellement depuis optifine.net."
+            )
+            return
+        self.set_status("Recherche d'Iris sur Modrinth...")
+        threading.Thread(target=self._install_iris_thread, args=(name, inst), daemon=True).start()
+
+    def _install_iris_thread(self, name, inst):
+        try:
+            results = ModrinthAPI.search("Iris", mc_version=inst["version"], loader="fabric", project_type="mod")
+            iris_project = next((r for r in results if r.get("slug") == "iris" or r.get("title") == "Iris"), None)
+            if not iris_project:
+                self.after(0, lambda: messagebox.showerror(
+                    "Introuvable", "Iris n'est pas disponible pour cette version de Minecraft."))
+                return
+            project_id = iris_project.get("project_id") or iris_project.get("slug")
+            versions = ModrinthAPI.project_versions(project_id, mc_version=inst["version"], loader="fabric")
+            if not versions:
+                self.after(0, lambda: messagebox.showerror(
+                    "Introuvable", "Aucune version d'Iris compatible avec cette version de Minecraft."))
+                return
+            file_info = next((f for f in versions[0].get("files", []) if f.get("primary")), versions[0]["files"][0])
+            mods_dir = Path(inst["dir"]) / "mods"
+            ModrinthAPI.download_mod_file(file_info, mods_dir)
+            self.after(0, lambda: self.set_status("Iris installé avec succès."))
+            self.after(0, lambda: messagebox.showinfo("Succès", "Iris a été installé dans cette instance."))
+            core.notify("Iris installé", f"Iris est prêt pour l'instance « {name} ».")
         except Exception as e:
             self.after(0, lambda: messagebox.showerror("Erreur", str(e)))
 
@@ -858,6 +1147,7 @@ class LauncherApp(tk.Tk):
             self.after(0, lambda: self.progress.config(value=100))
             self.after(0, lambda: self.set_status(f"Serveur '{name}' prêt."))
             self.after(0, self.refresh_server_list)
+            core.notify("Serveur prêt", f"Le serveur « {name} » est installé et prêt à démarrer.")
         except Exception as e:
             self.after(0, lambda: messagebox.showerror("Erreur d'installation", str(e)))
         finally:
@@ -892,6 +1182,7 @@ class LauncherApp(tk.Tk):
         def run():
             proc = ServerManager.start(Path(srv["dir"]), java_path, min_ram, max_ram, log_cb=log)
             self.server_procs[name] = proc
+            core.notify("Serveur démarré", f"Le serveur « {name} » tourne sur le port {srv.get('port', 25565)}.")
 
             # Présence Discord : "héberge un serveur"
             self.after(0, lambda: DiscordPresence.set_hosting())
@@ -902,7 +1193,7 @@ class LauncherApp(tk.Tk):
                 log(line.rstrip())
             log(f"=== Serveur arrêté (code retour : {proc.returncode}) ===")
 
-            self.after(0, lambda: DiscordPresence.set_idle())  # Retour à l'état idle
+            self.after(0, lambda: DiscordPresence.set_idle())
             self.after(0, lambda: self._update_server_details(name, srv))
             self.after(0, self.refresh_server_list)
 
